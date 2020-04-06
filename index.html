@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8" />
+		<title>Map</title>
+		<style>
+			body { 
+				margin:0;
+				position:fixed;
+				top:0;
+				right:0;
+				bottom:0;
+				left:0;
+				font-family: Arial;
+			}
+			.inputFields {
+				position:absolute;
+				top:0%;
+				left:50%;
+				transform: translateX(-50%);
+				z-index: 2;
+				width:100%;
+				box-sizing: border-box;
+				padding-left:200px;
+				padding-right:200px;
+				text-align: center;
+			}
+			.inputFields .inputSelect {
+				display:block;
+				margin-left:auto;
+				margin-right:auto;
+				margin-bottom:15px;
+				font-size:15px;
+			}
+			.inputFields .inputSlider {
+				width:300px;
+			}
+			.inputFields .inputLabel {
+				margin:0;
+				text-align: center;
+			}
+			.italics {
+				font-style: italic;
+			}
+		</style>
+		<!--<script src="scripts/d3.min.js"></script>-->
+		<script src="http://d3js.org/d3.v5.min.js"></script>
+		<script src="http://d3js.org/topojson.v0.min.js"></script>
+		<script src="scripts/d3-legend.min.js"></script>
+		<script src="scripts/FileSaver.min.js"></script>
+	</head>
+	<body>
+		<div id="inputFields" class="inputFields">
+			<h1>Project Test</h1>
+			<p>Description Here</p>
+
+			<select id="tempTypeSelect" class="inputSelect">
+				<option value="none" class="italics">Pick a year</option>
+				<!--
+				<option value="0">Minimum Temperature</option>
+				<option value="1">Average Temperature</option>
+				<option value="2">Maximum Temperature</option>
+				-->
+			</select>
+			<!--
+			<input type="range" id="chosenMonth" class="inputSlider" name="chosenMonth" min="0" max="9">
+			<p class="inputLabel" id="monthLabel"></p>
+			-->
+		</div>
+		<script type="text/javascript" src="scripts/project.js"></script>
+	</body>
+</html>

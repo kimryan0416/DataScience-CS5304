@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="UTF-8">
+		<title>Project #2 - CS 3300</title>
+		<link rel="stylesheet" href="styles/all.css">
+
+		<!-- Have to revert to d3 version 3 to allow for batch processing of points on our map -->
+		<!-- Since d3v3 doesn't contain queue, we have to import it as well from an external library -->
+		<script src="scripts/d3.v3.min.js"></script>
+		<script src="scripts/d3.queue.v1.min.js"></script>
+		<script src="scripts/jquery-3.3.1.min.js"></script>
+
+	</head>
+
+	<body>
+		<h1>When and Where is it Safe to Visit NYC?</h1>
+		<svg id="svg"></svg>
+		<div id="svgcommands">
+			<div class="command_checkbox_div">				
+				<div class='checkbox_color' style="background-color:red;"></div>
+				<span>Bronx</span>
+				<input type="checkbox" class="command_checkbox" value="bronx" data-id="BRONX" checked="true">
+			</div>
+			<div class="command_checkbox_div">
+				<div class='checkbox_color' style="background-color:steelblue;"></div>
+				<span>Brooklyn</span>
+				<input type="checkbox" class="command_checkbox"  value="brooklyn" data-id="BROOKLYN" checked="true">
+			</div>
+			<div class="command_checkbox_div">
+				<div class='checkbox_color' style="background-color:darkgreen;"></div>
+				<span>Manhattan</span>
+				<input type="checkbox" class="command_checkbox"  value="manhattan" data-id="MANHATTAN" checked="true">
+			</div>
+			<div class="command_checkbox_div">
+				<div class='checkbox_color' style="background-color:orange;"></div>
+				<span>Queens</span>
+				<input type="checkbox" class="command_checkbox" value="queens" data-id="QUEENS" checked="true">
+			</div>
+			<div class="command_checkbox_div">
+				<div class='checkbox_color' style="background-color:blue;"></div>
+				<span>Staten Island</span>
+				<input type="checkbox" class="command_checkbox" value="statenisland" data-id="STATEN ISLAND" checked="true">
+			</div>
+		</div>
+		<div id="lowersvgcontainer">
+			<svg class='lowersvg' id="lowersvgleft"></svg>
+			<svg class='lowersvg' id="lowersvgright"></svg>
+		</div>
+			
+		<script>
+			var start, end, totalTime;
+			var data;
+			var nestedData = [];
+			var ymax = 550;
+
+			var xscale, xaxis, gx;
+			var yscale, yaxis, gy;
+
+			var width, height = 400, padding_hor = 200, padding_ver=50;
+			var smallwidth = 800,smallheight=800;
+			var screenWidth = $(document).width();
+			width = screenWidth - (padding_hor * 2);
+
+			var borough, communities;
+			var color;
+			var day, fullDay, dayIndicator, currentBorough = "MANHATTAN";
+
+			var months = [
+				{month:"January",monthNum:1,numDays:31},
+				{month:"February",monthNum:2,numDays:28},
+				{month:"March",monthNum:3,numDays:31},
+				{month:"April",monthNum:4,numDays:30},
+				{month:"May",monthNum:5,numDays:31},
+				{month:"June",monthNum:6,numDays:30},
+				{month:"July",monthNum:7,numDays:31},
+				{month:"August",monthNum:8,numDays:31},
+				{month:"September",monthNum:9,numDays:30},
+				{month:"October",monthNum:10,numDays:31},
+				{month:"November",monthNum:11,numDays:30},
+				{month:"December",monthNum:12,numDays:31}
+			];
+
+			var conditions = {
+				"BRONX":["bronx",true,"red"],
+				"BROOKLYN":["brooklyn",true,"steelblue"],
+				"MANHATTAN":["manhattan",true,"darkgreen"],
+				"QUEENS":["queens",true,"orange"],
+				"STATEN ISLAND":["statenisland",true,"blue"]
+			};
+
+			$(".command_checkbox").each(function(d,i) {
+				conditions[$(this).attr("data-id")][1] = $(this).prop("checked");
+			})
+			
+			var svg = d3.select("#svg")
+				.attr("width",screenWidth)
+				.attr("height",(height+(padding_ver*2)));
+			var plot = svg.append("g")
+				.attr("width",width)
+				.attr("height",height)
+				.attr("transform","translate("+padding_hor+","+padding_ver+")")
+			var line = d3.svg.line()
+				.x(function(d) { return xscale(d.key); })
+				.y(function(d) { return yscale(d.values.length); })
+				.interpolate("cardinal");
+
+			var lowersvgleft = d3.select("#lowersvgleft")
+				.attr("width", 800)
+				.attr("height",800);
+			var smallprojection = d3.geo.mercator()					// presets the projection to be like the Mercator map
+				.scale(70000)									// Without this, the map is TINY - need this to make the size appropriate
+				.translate([smallwidth / 2, smallheight / 2]);	// Makes sure that the map is centered in our left-side SVG
+			var smallpolygons;
+
+			day = Math.floor(Math.random() * 365);
+			//var diff = $.extend({},day);
+			fullDay = setNewFullDay(day)
+			console.log(fullDay)
+
+			function upperCaseFirstLetter(string) {	
+				return string.charAt(0).toUpperCase() + string.slice(1);	
+			}
+			function lowerCaseAllWordsExceptFirstLetters(string) {
+				return string.replace(/\w\S*/g, function (word) {
+					return word.charAt(0) + word.slice(1).toLowerCase();
+				});
+			}
+
+			function setNewFullDay(d) {
+				var diff = d;
+				for (var i = 0; i < 12; i++) {
+					if (i == 11) {
+						return months[i].month + " " + diff.toString();
+					} else {
+						var newdiff = diff - parseInt(months[i].numDays);
+						if (diff <= months[i+1].numDays) {
+							return months[i].month + " " + diff.toString();
+						}
+						diff = newdiff;
+					}
+				}
+			}
+
+			function createColorRange(mi,ma) {
+				color = d3.scale.linear()
+					.domain([mi, ma])
+					.clamp(true)
+					.range(['#fff', '#409A99']);
+			}
+			function setColor(d) {
+				//console.log(d.properties.borough.toUpperCase());
+				var thisColor;
+				var boroughName = d.properties.borough.toUpperCase();
+				for (var k in nestedData) {
+					if (nestedData[k].key == boroughName) {
+						thisColor = color(nestedData[k].values[day].values.length);
+						return thisColor
+					}
+				}
+				return "white";
+			}
+
+			setupSVG()
+			lowerSVGSetup();
+			runManhattan();
+
+			function setupSVG() {
+				xscale = d3.scale.linear().domain([1,365]).range([0,width]);
+		  		xaxis = d3.svg.axis().scale(xscale).orient("bottom").ticks(24);
+		  		gx = plot.append("g").call(xaxis).attr("transform","translate(0,"+height+")").attr("class","axis");
+
+		  		yscale = d3.scale.linear().domain([0,ymax]).range([height,0]);
+		  		yaxis = d3.svg.axis().scale(yscale).orient("left");
+		  		gy = plot.append("g").call(yaxis).attr("transform","translate(-"+ 50+", 0)").attr("class","axis");
+
+	  			var monthLines = plot.selectAll(".monthLines").data(months)
+					.enter()
+					.append("g")
+					.attr("class","monthLines")
+	  					
+	  			monthLines.append("line")
+	  				.attr("x1",function(d) {
+	  					var k = 1;
+	  					for (var i = 0; i < d["monthNum"] - 1; i++) {
+	  						k = k + months[i]["numDays"];
+	  					}
+						return xscale(k);
+	  				})
+	  				.attr("x2",function(d) {
+	  					var k = 1;
+	  					for (var i = 0; i < d["monthNum"] - 1; i++) {
+	  						k = k + months[i]["numDays"];
+						}
+	  					return xscale(k);
+	  				})
+	  				.attr("y1",yscale(-30))
+	  				.attr("y2",yscale(ymax))
+					.attr("stroke","black")
+  					.attr("stroke-width",1)
+	  				.attr("opacity","0.1");
+
+				dayIndicator = plot.append("g")
+					.attr("id","dayIndicator");
+				dayIndicator.append("line")
+					.attr("x1",xscale(day))
+					.attr("x2",xscale(day))
+					.attr("y1",yscale(-50))
+					.attr("y2",yscale(ymax))
+					.attr("stroke","black")
+					.attr("stroke-width",2);
+				dayIndicator.append("text")
+					.text(fullDay)
+					.attr("x",xscale(day))
+					.attr("y",yscale(-50))
+					.attr('text-anchor',"left")
+					.attr("font-size","12")
+					.attr("dominant-baseline","middle")
+					.attr("transform","translate(5,0)");
+
+				var mouseG = plot.append("g").attr("id","mouseG");
+	  				mouseG.append("path")
+	  					.attr("class", "mouse-line")
+	  					.style("stroke", "rgba(0,0,0,0.5)")
+	      				.style("stroke-width", "2px")
+	      				.style("opacity", "0");
+	      			
+					mouseG.append('rect') // append a rect to catch mouse movements on canvas
+	      				.attr('width', width) // can't catch mouse events on a g element
+						.attr('height', height)
+						.attr('fill', 'none')
+						.attr('pointer-events', 'all')
+						.on('mouseout', function() { // on mouse out hide line, circles and text
+							d3.select(".mouse-line")
+								.style("opacity", "0");
+							d3.selectAll(".mouse-per-line circle")
+								.style("opacity", "0");
+							d3.selectAll(".mouse-per-line text")
+								.style("opacity", "0");
+	      				})
+						.on('mouseover', function() { // on mouse in show line, circles and text
+							d3.select(".mouse-line")
+								.style("opacity", "1");
+							d3.selectAll(".mouse-per-line circle")
+								.style("opacity", "1");
+							d3.selectAll(".mouse-per-line text")
+								.style("opacity", "1");
+							})
+	      				.on('mousemove', function() { // mouse moving over canvas
+							var mouse = d3.mouse(this);
+							if (Number.isInteger(mouse[0])) {
+								d3.select(".mouse-line").attr("d", mouseGMove(mouse[0]))
+							}
+				    	})
+				    	.on('click',function() {
+							var mouse = d3.mouse(this);
+							day = Math.round(xscale.invert(mouse[0]));
+							fullDay = setNewFullDay(day);
+
+							dayIndicator.select("line")
+								.attr("x1",xscale(day))
+								.attr("x2",xscale(day))
+							dayIndicator.select("text")
+								.text(fullDay)
+								.attr("x",xscale(day))
+
+							lowerSVGLeftImprovement();
+						});
+
+				function mouseGMove(k) {
+					var d = "M" + k + "," + height;
+					d += " " + k + "," + 0;
+					return d;
+								
+				}
+
+				$(".command_checkbox").on("change",function() {
+		      		var thisVal = $(this).val();
+		      		if ($(this).prop("checked") === true) {
+						d3.select("#path_"+thisVal).attr("opacity",1);
+		  			} else {
+						d3.select("#path_"+thisVal).attr("opacity",0);
+					}
+		  		});
+
+			}
+
+			function lowerSVGSetup() {
+				queue()
+					.defer(d3.json, "data/NYC_MapInfo.geojson")
+					.await(function(error, boroughData) {
+						if (error) {				// If there's an error present - just shows error and ends
+							console.log(error);
+							return;
+						}
+						createColorRange(0,ymax)
+
+						borough = boroughData;			// save our borough map data under global variable "borough"
+						
+
+						// All the stuff to render our small, left-side, borough-only map
+						smallcenter = d3.geo.centroid(borough);
+						smallprojection.center(smallcenter);
+						smallpath = d3.geo.path().projection(smallprojection);
+
+						smallpolygons = lowersvgleft.append("g").attr("id","mapOfNYC");
+						smallpolygons.selectAll("path")
+							.data(borough.features)
+							.enter().append("path")
+							.attr("d", smallpath)
+							.attr("fill","white")
+							.attr("stroke","rgba(0,0,0,0.3)")
+							.attr("stroke-width",1)
+							.attr("style","cursor:pointer;")
+						console.log("Finished Left");
+					});
+			};
+
+			function lowerSVGLeftImprovement() {
+				smallpolygons.selectAll("path").attr("fill",setColor);
+			}
+
+			function runManhattan() {
+				start = new Date().getTime();
+				queue()
+					//.defer(d3.json,"data/nyc.json")					// our borough-only map data
+					//.defer(d3.json, "data/NYC_MapInfo.geojson")		// our map data containing not just boroughs but also the zipcode communities within
+					.defer(d3.csv, "data/crimeData/2015boroughs/Manhattan/1.csv")		// crime data for 2015's january
+					.defer(d3.csv, "data/crimeData/2015boroughs/Manhattan/2.csv")		// ... and february
+					.defer(d3.csv, "data/crimeData/2015boroughs/Manhattan/3.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Manhattan/4.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Manhattan/5.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Manhattan/6.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Manhattan/7.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Manhattan/8.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Manhattan/9.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Manhattan/10.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Manhattan/11.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Manhattan/12.csv")	// .... all the way to december
+					.await(analyze);				// run function analyze()
+				runBronx();
+			}
+
+			function runBronx() {
+				start = new Date().getTime();
+				queue()
+					//.defer(d3.json,"data/nyc.json")					// our borough-only map data
+					//.defer(d3.json, "data/NYC_MapInfo.geojson")		// our map data containing not just boroughs but also the zipcode communities within
+					.defer(d3.csv, "data/crimeData/2015boroughs/Bronx/1.csv")		// crime data for 2015's january
+					.defer(d3.csv, "data/crimeData/2015boroughs/Bronx/2.csv")		// ... and february
+					.defer(d3.csv, "data/crimeData/2015boroughs/Bronx/3.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Bronx/4.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Bronx/5.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Bronx/6.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Bronx/7.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Bronx/8.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Bronx/9.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Bronx/10.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Bronx/11.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Bronx/12.csv")	// .... all the way to december
+					.await(analyze);						// run function analyze()
+
+				runBrooklyn();
+			}
+
+			function runBrooklyn() {
+				start = new Date().getTime();
+				queue()
+					//.defer(d3.json,"data/nyc.json")					// our borough-only map data
+					//.defer(d3.json, "data/NYC_MapInfo.geojson")		// our map data containing not just boroughs but also the zipcode communities within
+					.defer(d3.csv, "data/crimeData/2015boroughs/Brooklyn/1.csv")		// crime data for 2015's january
+					.defer(d3.csv, "data/crimeData/2015boroughs/Brooklyn/2.csv")		// ... and february
+					.defer(d3.csv, "data/crimeData/2015boroughs/Brooklyn/3.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Brooklyn/4.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Brooklyn/5.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Brooklyn/6.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Brooklyn/7.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Brooklyn/8.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Brooklyn/9.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Brooklyn/10.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Brooklyn/11.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Brooklyn/12.csv")	// .... all the way to december
+					.await(analyze);										// run function analyze()
+
+				runQueens();
+			}
+
+			function runQueens() {
+				start = new Date().getTime();
+				queue()
+					//.defer(d3.json,"data/nyc.json")					// our borough-only map data
+					//.defer(d3.json, "data/NYC_MapInfo.geojson")		// our map data containing not just boroughs but also the zipcode communities within
+					.defer(d3.csv, "data/crimeData/2015boroughs/Queens/1.csv")		// crime data for 2015's january
+					.defer(d3.csv, "data/crimeData/2015boroughs/Queens/2.csv")		// ... and february
+					.defer(d3.csv, "data/crimeData/2015boroughs/Queens/3.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Queens/4.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Queens/5.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Queens/6.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Queens/7.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Queens/8.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Queens/9.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Queens/10.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Queens/11.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Queens/12.csv")	// .... all the way to december
+					.await(analyze);		
+				runStaten();
+			}
+
+			function runStaten() {
+				start = new Date().getTime();
+				queue()
+					//.defer(d3.json,"data/nyc.json")					// our borough-only map data
+					//.defer(d3.json, "data/NYC_MapInfo.geojson")		// our map data containing not just boroughs but also the zipcode communities within
+					.defer(d3.csv, "data/crimeData/2015boroughs/Staten/1.csv")		// crime data for 2015's january
+					.defer(d3.csv, "data/crimeData/2015boroughs/Staten/2.csv")		// ... and february
+					.defer(d3.csv, "data/crimeData/2015boroughs/Staten/3.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Staten/4.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Staten/5.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Staten/6.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Staten/7.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Staten/8.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Staten/9.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Staten/10.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Staten/11.csv")
+					.defer(d3.csv, "data/crimeData/2015boroughs/Staten/12.csv")	// .... all the way to december
+					.await(analyze);				// run function analyze()
+			}
+
+			function analyze (error, data1,data2,data3,data4,data5,data6,data7,data8,data9,data10,data11,data12) {
+				if (error) {				// If there's an error present - just shows error and ends
+					console.log(error);
+					return;
+						}
+
+						data = [data1,data2,data3,data4,data5,data6,data7,data8,data9,data10,data11,data12];
+
+						var newDataTest = [];
+						data.forEach(function(monthlyData) {
+							 monthlyData.forEach(function(row) {
+							 	newDataTest.push(row);
+							 });
+						});
+						var thisnestedData = d3.nest()
+							.key(function(d) {
+								return d.BORO_NM;
+							})
+							.rollup(function(v) { 
+								var nestedArray = d3.nest()
+									.key(function(r) {
+										var date = r.CMPLNT_FR_DT;
+										if (date == "NA") {
+											date = r.RPT_DT;
+										}
+										date = date.split("/");
+										var theDay = parseInt(date[1]);
+										for (var i = 0; i < parseInt(date[0], 10)-1; i++) {
+											theDay = theDay + months[i]["numDays"]
+										}
+										return theDay;
+									})
+									.entries(v);
+								nestedArray.sort(function(x,y) {
+									return parseInt(x.key, 10) - parseInt(y.key, 10);
+								})
+								return nestedArray
+							})
+							.entries(newDataTest);
+						nestedData.push(thisnestedData[0]);
+						console.log(nestedData);
+		  				
+		  				thisnestedData.forEach(function(d) {
+		  					var key = d.key;
+		  					var path = plot.append("g")
+		  						.attr("class","path").attr("id",function() {
+		  							return "path_"+key.toLowerCase().replace(/\s+/g, '');
+		  						})
+		  						.attr("opacity",function(k){
+			  						if (conditions[key][1] === true) {
+			  							return 1;
+			  						} else {
+			  							return 0;
+			  						}
+			  					});
+
+		  					path.append("path").datum(d)
+		  						.attr("class","notCurrentPath pointsPath")
+			  					.attr("fill","none")
+			  					.attr('stroke',function(k) {
+			  						return conditions[k.key][2];
+			  					})
+			  					.attr("stroke-width",1)
+			  					.attr("d",function(k) {
+			  						return line(k.values);	
+			  					});
+
+		  					d.values.forEach(function(day) {
+		  						path.append("circle").datum(day)
+		  							.attr("r",2)
+		  							.attr("fill",function(k) {
+		  								return conditions[key][2];
+		  							})
+		  							.attr("cx",function(k){
+		  								return xscale(k.key);
+		  							})
+		  							.attr("cy",function(k){
+		  								return yscale(k.values.length);
+		  							})
+		  					});
+		  				});
+
+						end = new Date().getTime();
+						totalTime = end - start;
+		  				//console.log("Divided by Month Time: " + totalTime);
+
+		  				lowerSVGLeftImprovement();
+			};				
+
+		</script>
+	</body>
+</html>
